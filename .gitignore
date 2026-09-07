@@ -1,0 +1,6 @@
+# Ignores Rust build products and local editor files.
+/target/
+/.idea/
+/.vscode/
+*.swp
+
