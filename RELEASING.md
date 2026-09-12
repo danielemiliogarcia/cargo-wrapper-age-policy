@@ -17,7 +17,7 @@ Releases use checksum-pinned `cargo-dist` 0.32.0 and GitHub Actions. A `vMAJOR.M
 ./scripts/install-pinned-dist.sh
 dist --version
 dist plan
-dist build --artifacts=host --tag=v0.1.0
+dist build --artifacts=host --tag=v0.1.1
 ```
 
 Use the version from `Cargo.toml`. Add `--allow-dirty` only for a private smoke test. Artifacts appear in `target/distrib/`.
@@ -38,8 +38,8 @@ cargo test --all-targets --locked
 cargo clippy --all-targets --locked -- -D warnings
 cargo fmt --all --check
 dist plan
-git tag -a v0.1.0 -m "Cargo Wrapper Age Policy 0.1.0"
-git push origin v0.1.0
+git tag -a v0.1.1 -m "Cargo Wrapper Age Policy 0.1.1"
+git push origin v0.1.1
 ```
 
 The workflow publishes only matching version tags. Any verification, build, packaging, or attestation failure prevents publication.
@@ -58,4 +58,3 @@ gh attestation verify \
 ```
 
 Checksums detect corruption and attestations identify the producing repository and workflow. Neither proves that source code is safe.
-
