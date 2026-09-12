@@ -372,6 +372,7 @@ fn validate_manifest_registries(args: &[String], cwd: &Path) -> Result<()> {
     };
     let mut pending = vec![root_manifest];
     let mut visited = HashSet::new();
+    let mut workspace_dependencies = None;
     while let Some(path) = pending.pop() {
         let canonical = path.canonicalize().map_err(|error| {
             format!(
@@ -401,45 +402,100 @@ fn validate_manifest_registries(args: &[String], cwd: &Path) -> Result<()> {
             )
         })?;
         let base = canonical.parent().unwrap_or(Path::new("."));
-        inspect_dependency_tables(&value, base, &mut pending)?;
+        if workspace_dependencies.is_none()
+            && let Some(dependencies) = value
+                .get("workspace")
+                .and_then(|workspace| workspace.get("dependencies"))
+                .and_then(toml::Value::as_table)
+        {
+            workspace_dependencies = Some(WorkspaceDependencies {
+                base: base.to_path_buf(),
+                dependencies: dependencies.clone(),
+            });
+        }
+        inspect_dependency_tables(&value, base, workspace_dependencies.as_ref(), &mut pending)?;
         enqueue_workspace_members(&value, base, &mut pending)?;
     }
     Ok(())
 }
 
+struct WorkspaceDependencies {
+    base: PathBuf,
+    dependencies: toml::map::Map<String, toml::Value>,
+}
+
 fn inspect_dependency_tables(
     value: &toml::Value,
     base: &Path,
+    workspace_dependencies: Option<&WorkspaceDependencies>,
     pending: &mut Vec<PathBuf>,
 ) -> Result<()> {
     let Some(table) = value.as_table() else {
         return Ok(());
     };
     for (key, child) in table {
+        if key == "workspace" {
+            continue;
+        }
         if matches!(
             key.as_str(),
             "dependencies" | "dev-dependencies" | "build-dependencies"
         ) && let Some(dependencies) = child.as_table()
         {
             for (name, specification) in dependencies {
-                let Some(specification) = specification.as_table() else {
-                    continue;
-                };
-                if specification
-                    .get("registry")
-                    .and_then(toml::Value::as_str)
-                    .is_some_and(|registry| registry != "crates-io")
-                {
-                    return Err(format!(
-                        "age-policy: old-Cargo compatibility mode cannot guarantee minimum age for dependency {name:?} from an alternate registry; use Cargo 1.100+"
-                    ));
-                }
-                if let Some(path) = specification.get("path").and_then(toml::Value::as_str) {
-                    pending.push(base.join(path).join("Cargo.toml"));
-                }
+                inspect_dependency(name, specification, base, workspace_dependencies, pending)?;
             }
+            continue;
         }
-        inspect_dependency_tables(child, base, pending)?;
+        inspect_dependency_tables(child, base, workspace_dependencies, pending)?;
+    }
+    Ok(())
+}
+
+fn inspect_dependency(
+    name: &str,
+    specification: &toml::Value,
+    base: &Path,
+    workspace_dependencies: Option<&WorkspaceDependencies>,
+    pending: &mut Vec<PathBuf>,
+) -> Result<()> {
+    let Some(specification) = specification.as_table() else {
+        return Ok(());
+    };
+    let (specification, base) = if specification
+        .get("workspace")
+        .and_then(toml::Value::as_bool)
+        == Some(true)
+    {
+        let workspace = workspace_dependencies.ok_or_else(|| {
+            format!(
+                "age-policy: dependency {name:?} inherits workspace configuration, but no workspace dependency definition was found"
+            )
+        })?;
+        let inherited = workspace.dependencies.get(name).ok_or_else(|| {
+            format!(
+                "age-policy: dependency {name:?} inherits a missing workspace dependency definition"
+            )
+        })?;
+        let Some(inherited) = inherited.as_table() else {
+            return Ok(());
+        };
+        (inherited, workspace.base.as_path())
+    } else {
+        (specification, base)
+    };
+
+    if specification
+        .get("registry")
+        .and_then(toml::Value::as_str)
+        .is_some_and(|registry| registry != "crates-io")
+    {
+        return Err(format!(
+            "age-policy: old-Cargo compatibility mode cannot guarantee minimum age for dependency {name:?} from an alternate registry; use Cargo 1.100+"
+        ));
+    }
+    if let Some(path) = specification.get("path").and_then(toml::Value::as_str) {
+        pending.push(base.join(path).join("Cargo.toml"));
     }
     Ok(())
 }
@@ -872,6 +928,50 @@ mod tests {
             parse_rfc3339("2026-09-05T12:34:56.123Z").unwrap(),
             1_788_611_696
         );
+    }
+
+    #[test]
+    fn unused_workspace_path_dependency_does_not_block_compatibility_mode() {
+        let directory = TestDirectory::new();
+        let member = directory.path().join("member");
+        fs::create_dir(&member).unwrap();
+        fs::write(
+            directory.path().join("Cargo.toml"),
+            "[workspace]\nmembers = [\"member\"]\nresolver = \"2\"\n\
+             \n[workspace.dependencies]\nunused = { path = \"missing\" }\n",
+        )
+        .unwrap();
+        fs::write(
+            member.join("Cargo.toml"),
+            "[package]\nname = \"member\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+
+        validate_manifest_registries(&["build".to_owned()], directory.path()).unwrap();
+    }
+
+    #[test]
+    fn inherited_workspace_path_dependency_is_still_checked_when_used() {
+        let directory = TestDirectory::new();
+        let member = directory.path().join("member");
+        fs::create_dir(&member).unwrap();
+        fs::write(
+            directory.path().join("Cargo.toml"),
+            "[workspace]\nmembers = [\"member\"]\nresolver = \"2\"\n\
+             \n[workspace.dependencies]\nrequired = { path = \"missing\" }\n",
+        )
+        .unwrap();
+        fs::write(
+            member.join("Cargo.toml"),
+            "[package]\nname = \"member\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\
+             \n[dependencies]\nrequired = { workspace = true }\n",
+        )
+        .unwrap();
+
+        let error =
+            validate_manifest_registries(&["build".to_owned()], directory.path()).unwrap_err();
+        assert!(error.contains("cannot resolve manifest"));
+        assert!(error.contains("missing/Cargo.toml"));
     }
 
     #[test]

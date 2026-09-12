@@ -33,6 +33,12 @@ Only when the selected Cargo is too old to support minimum publish age itself.
 
 When Cargo has native stable support, the plugin passes it the effective minimum-age configuration and Cargo enforces the policy directly. When a nightly Cargo exposes the feature, the plugin also supplies `-Z min-publish-age`. Neither native path starts the local server.
 
+## Why are unused workspace dependencies ignored?
+
+Cargo permits `[workspace.dependencies]` entries that no current workspace member inherits. Those declarations do not participate in the active dependency graph, and they may temporarily reference a missing local path during branch-specific development.
+
+Compatibility mode now follows a workspace dependency definition only when a package uses `{ workspace = true }`. A missing path that is actually inherited still fails closed. This matches Cargo's treatment of unused workspace declarations without weakening checks for dependencies reachable from workspace members.
+
 ## How does the compatibility flow work?
 
 Suppose crates.io contains:

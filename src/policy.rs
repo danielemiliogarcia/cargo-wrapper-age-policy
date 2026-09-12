@@ -3,6 +3,10 @@
 use crate::cargo_support::CargoSupport;
 
 pub const GLOBAL_AGE_ENV: &str = "CARGO_REGISTRY_GLOBAL_MIN_PUBLISH_AGE";
+pub const PASSTHROUGH_COMMANDS_ENV: &str = "CARGO_WRAPPER_AGE_POLICY_PASSTHROUGH_COMMANDS";
+const DEFAULT_PASSTHROUGH_COMMANDS: &[&str] = &["sort"];
+const MAX_PASSTHROUGH_COMMANDS: usize = 64;
+const MAX_PASSTHROUGH_COMMAND_LENGTH: usize = 128;
 
 pub fn selected_toolchain(args: &[String]) -> Option<&str> {
     args.first()
@@ -81,6 +85,51 @@ pub fn is_known_resolving(args: &[String]) -> bool {
                 | "vendor"
         )
     )
+}
+
+pub fn allowlisted_external_command<'a>(
+    args: &'a [String],
+    configured: Option<&str>,
+) -> crate::Result<Option<&'a str>> {
+    if is_known_resolving(args) || is_known_non_resolving(args) {
+        return Ok(None);
+    }
+    let Some(command) = cargo_subcommand(args) else {
+        return Ok(None);
+    };
+
+    if let Some(configured) = configured {
+        if configured.len() > MAX_PASSTHROUGH_COMMANDS * (MAX_PASSTHROUGH_COMMAND_LENGTH + 1) {
+            return Err(format!(
+                "age-policy: {PASSTHROUGH_COMMANDS_ENV} exceeds its bounded size"
+            ));
+        }
+        let mut count = 0_usize;
+        let mut allowed = false;
+        for entry in configured.split(',') {
+            let entry = entry.trim();
+            if entry.is_empty() {
+                continue;
+            }
+            count += 1;
+            if count > MAX_PASSTHROUGH_COMMANDS
+                || entry.len() > MAX_PASSTHROUGH_COMMAND_LENGTH
+                || !entry
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+            {
+                return Err(format!(
+                    "age-policy: invalid command in {PASSTHROUGH_COMMANDS_ENV}: {entry:?}"
+                ));
+            }
+            allowed |= entry == command;
+        }
+        return Ok(allowed.then_some(command));
+    }
+
+    Ok(DEFAULT_PASSTHROUGH_COMMANDS
+        .contains(&command)
+        .then_some(command))
 }
 
 pub fn explicitly_disabled(args: &[String], environment_age: Option<&str>) -> bool {
@@ -245,5 +294,34 @@ mod tests {
         assert!(is_known_resolving(&args(&["build"])));
         assert!(is_known_resolving(&args(&["forceadd", "serde"])));
         assert!(!is_known_resolving(&args(&["unknown-subcommand"])));
+    }
+
+    #[test]
+    fn external_passthrough_is_narrow_configurable_and_cannot_bypass_resolving_commands() {
+        assert_eq!(
+            allowlisted_external_command(&args(&["sort", "--check"]), None).unwrap(),
+            Some("sort")
+        );
+        assert_eq!(
+            allowlisted_external_command(&args(&["third-party-command"]), None).unwrap(),
+            None
+        );
+        assert_eq!(
+            allowlisted_external_command(
+                &args(&["third-party-command"]),
+                Some("sort, third-party-command")
+            )
+            .unwrap(),
+            Some("third-party-command")
+        );
+        assert_eq!(
+            allowlisted_external_command(&args(&["sort"]), Some("")).unwrap(),
+            None
+        );
+        assert_eq!(
+            allowlisted_external_command(&args(&["build"]), Some("build")).unwrap(),
+            None
+        );
+        assert!(allowlisted_external_command(&args(&["sort"]), Some("sort,../unsafe")).is_err());
     }
 }

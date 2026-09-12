@@ -4,8 +4,9 @@ use cargo_wrapper_age_policy::cargo_support::{CargoSupport, detect};
 use cargo_wrapper_age_policy::config::{self, FallbackPolicy};
 use cargo_wrapper_age_policy::fallback::{SparseFilterServer, locked_crates_io_packages};
 use cargo_wrapper_age_policy::policy::{
-    GLOBAL_AGE_ENV, apply_native_config, apply_support, explicitly_disabled,
-    is_known_non_resolving, is_known_resolving, is_plugin_status_command, selected_toolchain,
+    GLOBAL_AGE_ENV, PASSTHROUGH_COMMANDS_ENV, allowlisted_external_command, apply_native_config,
+    apply_support, explicitly_disabled, is_known_non_resolving, is_known_resolving,
+    is_plugin_status_command, selected_toolchain,
 };
 use cargo_wrapper_age_policy::protocol::{self, ProtocolContext};
 use std::env;
@@ -78,6 +79,15 @@ fn run() -> Result<i32, String> {
             config::resolve(&args, &cwd),
         );
         return Ok(0);
+    }
+
+    if let Some(command) =
+        allowlisted_external_command(&args, env::var(PASSTHROUGH_COMMANDS_ENV).ok().as_deref())?
+    {
+        eprintln!(
+            "age-policy: passing through allowlisted external Cargo subcommand `{command}` without minimum-age filtering; trust this tool because any nested Cargo invocation is outside this policy"
+        );
+        return context.run_next(&args);
     }
 
     if is_known_non_resolving(&args)

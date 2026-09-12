@@ -154,6 +154,56 @@ fn fallback_fails_closed_for_unknown_subcommands() {
 }
 
 #[test]
+fn cargo_sort_is_the_default_bounded_external_passthrough() {
+    let fixture = Fixture::new();
+    let output = fixture
+        .command()
+        .env("FIXTURE_CARGO_VERSION", "cargo 1.99.0 (old-stable)")
+        .env("CARGO_REGISTRY_GLOBAL_MIN_PUBLISH_AGE", "30 days")
+        .args(["sort", "--workspace", "--check"])
+        .output()
+        .unwrap();
+    assert_success(&output);
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("passing through allowlisted external Cargo subcommand `sort`")
+    );
+    assert_eq!(
+        fixture.trace(),
+        "next|sort --workspace --check|age=30 days\n"
+    );
+}
+
+#[test]
+fn external_passthrough_can_be_replaced_or_disabled_explicitly() {
+    let fixture = Fixture::new();
+    let output = fixture
+        .command()
+        .env("FIXTURE_CARGO_VERSION", "cargo 1.99.0 (old-stable)")
+        .env(
+            "CARGO_WRAPPER_AGE_POLICY_PASSTHROUGH_COMMANDS",
+            "third-party-command",
+        )
+        .arg("third-party-command")
+        .output()
+        .unwrap();
+    assert_success(&output);
+    assert_eq!(fixture.trace(), "next|third-party-command|age=<unset>\n");
+
+    let disabled = Fixture::new();
+    let output = disabled
+        .command()
+        .env("FIXTURE_CARGO_VERSION", "cargo 1.99.0 (old-stable)")
+        .env("CARGO_WRAPPER_AGE_POLICY_PASSTHROUGH_COMMANDS", "")
+        .arg("sort")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("unknown Cargo subcommand"));
+    assert_eq!(disabled.trace(), "");
+}
+
+#[test]
 fn downstream_plugin_administration_bypasses_dependency_filtering() {
     let fixture = Fixture::new();
     let output = fixture

@@ -58,7 +58,7 @@ For an older stable Cargo without that flag, the plugin starts a bounded private
 
 If compatibility filtering cannot guarantee policy coverage, the operation fails closed: the next plugin and Cargo are not invoked. This includes alternate registries, an existing crates.io source replacement, Cargo configuration includes the plugin cannot safely merge, malformed index data, oversized responses, network/TLS failures, and unsafe workspace shapes the fallback cannot inspect. Switching to Cargo 1.100+ removes the registry-filter limitations because Cargo then owns the complete resolver policy.
 
-Cargo informational commands such as `cargo --version`, `cargo help`, `cargo clean`, and `cargo locate-project` remain usable on an unsupported Cargo.
+Cargo informational commands such as `cargo --version`, `cargo help`, `cargo clean`, and `cargo locate-project` remain usable on an unsupported Cargo. The external non-resolving command `cargo sort` is also passed through by default so manifest-formatting hooks work on old Cargo.
 
 Upstream Cargo currently marks the feature as stabilized for Cargo 1.100. Before that toolchain is available, use a nightly whose `cargo -Z help` output lists `min-publish-age`.
 
@@ -95,6 +95,24 @@ For a one-command setting:
 ```sh
 cargo --config 'registry.global-min-publish-age="7 days"' forceupdate
 ```
+
+### External Cargo subcommands
+
+Old-Cargo compatibility mode rejects unknown Cargo subcommands because the plugin cannot prove that an arbitrary external tool will preserve minimum-age filtering for nested Cargo calls. `cargo sort` is the single default exception because it formats manifests without resolving dependencies.
+
+Replace the exact comma-separated exception list with:
+
+```sh
+export CARGO_WRAPPER_AGE_POLICY_PASSTHROUGH_COMMANDS="sort,another-reviewed-tool"
+```
+
+Set it to an empty value to reject every unknown external subcommand:
+
+```sh
+export CARGO_WRAPPER_AGE_POLICY_PASSTHROUGH_COMMANDS=""
+```
+
+The setting applies only to otherwise unknown external subcommands. It cannot bypass the age policy for resolving commands such as `build`, `test`, `update`, or `install`. An allowlisted external executable runs without the age filter; review and trust that tool because any Cargo process it starts itself is outside this invocation's policy chain.
 
 ## Unsupported Cargo and older alternatives
 
