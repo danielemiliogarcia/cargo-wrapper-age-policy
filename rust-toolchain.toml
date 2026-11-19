@@ -1,0 +1,4 @@
+# Pins the development toolchain; legacy-Cargo CI jobs override it explicitly.
+[toolchain]
+channel = "1.100.0"
+components = ["rustfmt", "clippy"]

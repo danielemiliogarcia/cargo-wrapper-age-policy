@@ -1,6 +1,9 @@
 <!-- Explains native and compatibility enforcement as practical questions and answers. -->
 # How does Cargo Wrapper Age Policy work?
 
+> On Cargo 1.100 and newer this plugin is unnecessary because Cargo enforces minimum publish age natively.
+> See the README section [Cargo 1.100 and newer](README.md#cargo-100-and-newer).
+
 ## What is the local HTTP server?
 
 Think of it as a short-lived, read-only catalog filter between an old Cargo and the crates.io index. It is not a crates.io mirror, it is not a second dependency resolver, and it does not permanently run on your computer.
@@ -31,7 +34,7 @@ The local server filters version metadata. It does not download, extract, compil
 
 Only when the selected Cargo is too old to support minimum publish age itself.
 
-When Cargo has native stable support, the plugin passes it the effective minimum-age configuration and Cargo enforces the policy directly. When a nightly Cargo exposes the feature, the plugin also supplies `-Z min-publish-age`. Neither native path starts the local server.
+When Cargo has native stable support (1.100+), the plugin passes it the effective minimum-age configuration and Cargo enforces the policy directly. When a nightly Cargo exposes the feature, the plugin also supplies `-Z min-publish-age`. Neither native path starts the local server.
 
 ## Why are unused workspace dependencies ignored?
 
@@ -175,6 +178,4 @@ Cargo sees the eligible `0.0.1`, withholds the young `0.0.2`, and selects `0.0.1
 
 ## What happens after Cargo stabilizes minimum publish age?
 
-The compatibility server is no longer used. The plugin becomes a thin policy layer that supplies the effective setting and delegates enforcement to Cargo's native resolver.
-
-This preserves a consistent default and configuration across old Cargo, supporting nightly Cargo, and new stable Cargo without maintaining a separate resolver or configuration format.
+Cargo 1.100 has stabilized it. The compatibility server is not used there, and the plugin only passes the effective setting through as `--config`. Uninstall the plugin on Cargo 1.100+ and configure Cargo natively instead (see the README section [Cargo 1.100 and newer](README.md#cargo-100-and-newer)). Keep it only for projects and machines that still use Cargo 1.99 or older, until its end of support on 2027-06-30.

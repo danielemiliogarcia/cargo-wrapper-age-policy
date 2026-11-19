@@ -26,8 +26,21 @@ impl CargoSupport {
 
 pub fn detect(real_cargo: &Path, toolchain: Option<&str>) -> Result<CargoSupport> {
     let version = run_probe(real_cargo, toolchain, &["-V"])?;
-    if version.status_success && stable_native_version(&version.stdout) {
+    let parsed = if version.status_success {
+        parse_version(&version.stdout)
+    } else {
+        None
+    };
+    let Some(parsed) = parsed else {
+        return Ok(CargoSupport::Unsupported);
+    };
+    if parsed.is_native() {
         return Ok(CargoSupport::Stable);
+    }
+    // Stable and beta Cargo list `min-publish-age` in `-Z help` from 1.97 on but
+    // reject `-Z` outright, so only probe when the channel can accept the flag.
+    if !parsed.nightly {
+        return Ok(CargoSupport::Unsupported);
     }
 
     let unstable = run_probe(real_cargo, toolchain, &["-Z", "help"])?;
@@ -66,36 +79,87 @@ fn run_probe(real_cargo: &Path, toolchain: Option<&str>, args: &[&str]) -> Resul
     })
 }
 
-fn stable_native_version(output: &str) -> bool {
-    let Some(version) = output.split_whitespace().nth(1) else {
-        return false;
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct CargoVersion {
+    major: u64,
+    minor: u64,
+    /// True when the pre-release suffix starts with `nightly` or `dev`.
+    nightly: bool,
+}
+
+impl CargoVersion {
+    fn is_native(self) -> bool {
+        self.major > 1 || (self.major == 1 && self.minor >= STABLE_SINCE_MINOR)
+    }
+}
+
+/// Parses the version token of `cargo -V` output such as `cargo 1.99.0-nightly (abc 2026-08-01)`.
+fn parse_version(output: &str) -> Option<CargoVersion> {
+    let version = output.split_whitespace().nth(1)?;
+    let (core, prerelease) = match version.split_once('-') {
+        Some((core, prerelease)) => (core, Some(prerelease)),
+        None => (version, None),
     };
-    let core = version.split('-').next().unwrap_or(version);
     let mut parts = core.split('.');
-    let Some(major) = parts.next().and_then(|value| value.parse::<u64>().ok()) else {
-        return false;
-    };
-    let Some(minor) = parts.next().and_then(|value| value.parse::<u64>().ok()) else {
-        return false;
-    };
-    major > 1 || (major == 1 && minor >= STABLE_SINCE_MINOR)
+    let major = parts.next()?.parse::<u64>().ok()?;
+    let minor = parts.next()?.parse::<u64>().ok()?;
+    Some(CargoVersion {
+        major,
+        minor,
+        nightly: prerelease
+            .is_some_and(|value| value.starts_with("nightly") || value.starts_with("dev")),
+    })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::stable_native_version;
+    use super::parse_version;
 
     #[test]
-    fn recognizes_stabilized_versions() {
-        assert!(stable_native_version("cargo 1.100.0 (abc 2026-10-01)"));
-        assert!(stable_native_version("cargo 1.101.2-nightly (abc date)"));
-        assert!(stable_native_version("cargo 2.0.0 (abc date)"));
+    fn stable_old_release_is_neither_native_nor_nightly() {
+        let version = parse_version("cargo 1.99.1 (5f94df478 2026-08-27)").unwrap();
+        assert!(!version.is_native());
+        assert!(!version.nightly);
     }
 
     #[test]
-    fn rejects_old_or_malformed_versions() {
-        assert!(!stable_native_version("cargo 1.99.0 (abc date)"));
-        assert!(!stable_native_version("cargo unknown"));
-        assert!(!stable_native_version("not cargo output"));
+    fn old_nightly_is_detected_as_nightly() {
+        let version = parse_version("cargo 1.99.0-nightly (abc 2026-08-01)").unwrap();
+        assert!(!version.is_native());
+        assert!(version.nightly);
+        assert!(
+            parse_version("cargo 1.99.0-dev (abc 2026-08-01)")
+                .unwrap()
+                .nightly
+        );
+    }
+
+    #[test]
+    fn beta_is_not_nightly() {
+        assert!(
+            !parse_version("cargo 1.99.0-beta.2 (abc date)")
+                .unwrap()
+                .nightly
+        );
+    }
+
+    #[test]
+    fn recognizes_native_versions() {
+        let version = parse_version("cargo 1.100.0 (3acc79c0c 2026-11-05)").unwrap();
+        assert!(version.is_native());
+        assert!(!version.nightly);
+        assert!(
+            parse_version("cargo 1.101.2-nightly (abc date)")
+                .unwrap()
+                .is_native()
+        );
+        assert!(parse_version("cargo 2.0.0 (abc date)").unwrap().is_native());
+    }
+
+    #[test]
+    fn rejects_malformed_versions() {
+        assert!(parse_version("cargo unknown").is_none());
+        assert!(parse_version("not cargo output").is_none());
+        assert!(parse_version("").is_none());
     }
 }

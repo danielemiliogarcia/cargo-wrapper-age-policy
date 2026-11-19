@@ -5,8 +5,8 @@ use cargo_wrapper_age_policy::config::{self, FallbackPolicy};
 use cargo_wrapper_age_policy::fallback::{SparseFilterServer, locked_crates_io_packages};
 use cargo_wrapper_age_policy::policy::{
     GLOBAL_AGE_ENV, PASSTHROUGH_COMMANDS_ENV, allowlisted_external_command, apply_native_config,
-    apply_support, explicitly_disabled, is_known_non_resolving, is_known_resolving,
-    is_plugin_status_command, selected_toolchain,
+    apply_support, explicitly_disabled, is_dependency_changing, is_known_non_resolving,
+    is_known_resolving, is_plugin_status_command, selected_toolchain,
 };
 use cargo_wrapper_age_policy::protocol::{self, ProtocolContext};
 use std::env;
@@ -27,7 +27,14 @@ fn print_status(support: Result<CargoSupport, String>, policy: Result<FallbackPo
     println!("Cargo Wrapper Age Policy {}", env!("CARGO_PKG_VERSION"));
     println!("Registration name: age-policy");
     match support {
-        Ok(support) => println!("Selected Cargo: {}", support.description()),
+        Ok(support) => {
+            println!("Selected Cargo: {}", support.description());
+            if support == CargoSupport::Stable {
+                println!(
+                    "Note: Cargo 1.100+ enforces minimum publish age natively; this plugin is not needed. See README \"Cargo 1.100 and newer\"."
+                );
+            }
+        }
         Err(error) => println!("Selected Cargo: could not be inspected\n{error}"),
     }
     match policy {
@@ -40,6 +47,10 @@ fn print_status(support: Result<CargoSupport, String>, policy: Result<FallbackPo
         }) => println!(
             "Effective minimum publish age: {raw:?} via {cargo_key}{}",
             if defaulted { " (plugin default)" } else { "" }
+        ),
+        Ok(FallbackPolicy::Deferred { include_path }) => println!(
+            "Effective minimum publish age: deferred to native Cargo (config `include` in {})",
+            include_path.display()
         ),
         Err(error) => println!("Effective minimum publish age: invalid\n{error}"),
     }
@@ -74,10 +85,12 @@ fn run() -> Result<i32, String> {
 
     if is_plugin_status_command(&args) {
         let cwd = env::current_dir().map_err(|error| error.to_string())?;
-        print_status(
-            detect(context.real_cargo(), toolchain),
-            config::resolve(&args, &cwd),
+        let support = detect(context.real_cargo(), toolchain);
+        let fail_on_include = !matches!(
+            support,
+            Ok(CargoSupport::Stable | CargoSupport::UnstableFlag)
         );
+        print_status(support, config::resolve(&args, &cwd, fail_on_include));
         return Ok(0);
     }
 
@@ -101,9 +114,22 @@ fn run() -> Result<i32, String> {
     let policy = config::resolve(
         &args,
         &env::current_dir().map_err(|error| error.to_string())?,
+        support == CargoSupport::Unsupported,
     )?;
+    if support == CargoSupport::Stable && is_dependency_changing(&args) {
+        eprintln!(
+            "age-policy: Cargo 1.100+ enforces minimum publish age natively; this plugin is not needed. Configure Cargo directly (see the age-policy README, \"Cargo 1.100 and newer\")."
+        );
+    }
     match policy {
         FallbackPolicy::Disabled => context.run_next(&args),
+        FallbackPolicy::Deferred { include_path: _ } => {
+            eprintln!(
+                "age-policy: Cargo config uses `include`; deferring to native Cargo. Set CARGO_REGISTRY_GLOBAL_MIN_PUBLISH_AGE so isolated plugins (supply-chain-guard) see the policy."
+            );
+            args = apply_support(&args, support);
+            context.run_next(&args)
+        }
         FallbackPolicy::Enabled {
             cargo_key,
             raw,
@@ -134,7 +160,7 @@ fn run() -> Result<i32, String> {
                 args = apply_native_config(&args, cargo_key, &raw);
                 let filtered_args = server.cargo_arguments(&args);
                 eprintln!(
-                    "age-policy: selected Cargo lacks native support; enforcing {raw:?} through a private crates.io sparse-index filter"
+                    "age-policy: selected Cargo lacks native support; enforcing {raw:?} through a private crates.io sparse-index filter; upgrade to Cargo 1.100+ for native enforcement"
                 );
                 let status = context.run_next(&filtered_args);
                 let filter_result = server.finish();

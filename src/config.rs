@@ -21,6 +21,11 @@ pub enum FallbackPolicy {
         defaulted: bool,
         fallback_blocker: Option<String>,
     },
+    /// A Cargo config file uses `include`, so file-derived values are incomplete and
+    /// no CLI or environment value overrides them; native Cargo decides on its own.
+    Deferred {
+        include_path: PathBuf,
+    },
 }
 
 #[derive(Default)]
@@ -29,12 +34,29 @@ struct MergedConfig {
     crates_io_age: Option<String>,
     resolver_policy: Option<String>,
     fallback_blocker: Option<String>,
+    include_path: Option<PathBuf>,
 }
 
-pub fn resolve(args: &[String], cwd: &Path) -> Result<FallbackPolicy> {
+/// Resolves the effective policy. When a Cargo config file uses `include`, fail closed if
+/// `fail_on_include` is set (old-Cargo fallback); otherwise trust only CLI and environment
+/// values, which outrank every config file, and defer the rest to native Cargo.
+pub fn resolve(args: &[String], cwd: &Path, fail_on_include: bool) -> Result<FallbackPolicy> {
     let mut merged = MergedConfig::default();
     for path in cargo_config_paths(cwd) {
         merge_file(&path, &mut merged)?;
+    }
+    if let Some(include_path) = merged.include_path.take() {
+        if fail_on_include {
+            return Err(format!(
+                "age-policy: old-Cargo compatibility mode cannot safely merge Cargo config `include` from {}; use {} or Cargo 1.100+",
+                include_path.display(),
+                crate::policy::GLOBAL_AGE_ENV
+            ));
+        }
+        merged = MergedConfig {
+            include_path: Some(include_path),
+            ..MergedConfig::default()
+        };
     }
 
     if let Ok(value) = env::var(crate::policy::GLOBAL_AGE_ENV) {
@@ -50,6 +72,12 @@ pub fn resolve(args: &[String], cwd: &Path) -> Result<FallbackPolicy> {
 
     if merged.resolver_policy.as_deref() == Some("allow") {
         return Ok(FallbackPolicy::Disabled);
+    }
+    if let Some(include_path) = merged.include_path.clone()
+        && merged.crates_io_age.is_none()
+        && merged.global_age.is_none()
+    {
+        return Ok(FallbackPolicy::Deferred { include_path });
     }
 
     let (cargo_key, raw, defaulted) = if let Some(raw) = merged.crates_io_age {
@@ -117,12 +145,8 @@ fn merge_file(path: &Path, merged: &mut MergedConfig) -> Result<()> {
     let value: Value = toml::from_str(&contents)
         .map_err(|error| format!("age-policy: cannot parse {}: {error}", path.display()))?;
 
-    if value.get("include").is_some() {
-        return Err(format!(
-            "age-policy: old-Cargo compatibility mode cannot safely merge Cargo config `include` from {}; use {} or Cargo 1.100+",
-            path.display(),
-            crate::policy::GLOBAL_AGE_ENV
-        ));
+    if value.get("include").is_some() && merged.include_path.is_none() {
+        merged.include_path = Some(path.to_owned());
     }
     if value
         .get("source")
