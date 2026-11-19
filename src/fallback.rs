@@ -900,8 +900,10 @@ mod tests {
             format!("pub const SELECTED_VERSION: &str = \"{version}\";\n"),
         )
         .unwrap();
+        let target_dir = root.join("package-target");
         let output = Command::new(test_cargo())
-            .args(["package", "--allow-dirty", "--no-verify"])
+            .args(["package", "--allow-dirty", "--no-verify", "--target-dir"])
+            .arg(&target_dir)
             .current_dir(&source)
             .env("CARGO_HOME", root.join("packager-cargo-home"))
             .env("CARGO_TERM_COLOR", "never")
@@ -909,8 +911,8 @@ mod tests {
             .unwrap();
         assert_command_succeeded(&output);
         fs::read(
-            source
-                .join("target/package")
+            target_dir
+                .join("package")
                 .join(format!("age-policy-demo-{version}.crate")),
         )
         .unwrap()
