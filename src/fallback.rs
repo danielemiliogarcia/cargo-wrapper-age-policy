@@ -872,7 +872,10 @@ mod tests {
     }
 
     fn test_cargo() -> OsString {
-        std::env::var_os("CARGO").unwrap_or_else(|| OsString::from("cargo"))
+        // CI points this at an old toolchain's cargo; `cargo test` itself overrides `CARGO`.
+        std::env::var_os("AGE_POLICY_TEST_CARGO")
+            .or_else(|| std::env::var_os("CARGO"))
+            .unwrap_or_else(|| OsString::from("cargo"))
     }
 
     fn assert_command_succeeded(output: &Output) {
