@@ -23,7 +23,9 @@ pub enum FallbackPolicy {
     },
     /// A Cargo config file uses `include`, so file-derived values are incomplete and
     /// no CLI or environment value overrides them; native Cargo decides on its own.
-    Deferred { include_path: PathBuf },
+    Deferred {
+        include_path: PathBuf,
+    },
 }
 
 #[derive(Default)]

@@ -64,7 +64,11 @@ impl Fixture {
     fn include_project(&self) -> PathBuf {
         let project = self.root.join("project");
         fs::create_dir_all(project.join(".cargo")).unwrap();
-        fs::write(project.join(".cargo/config.toml"), "include = [\"age.toml\"]\n").unwrap();
+        fs::write(
+            project.join(".cargo/config.toml"),
+            "include = [\"age.toml\"]\n",
+        )
+        .unwrap();
         fs::write(
             project.join(".cargo/age.toml"),
             "[registry]\nglobal-min-publish-age = \"12 months\"\n",
@@ -192,7 +196,10 @@ fn stable_cargo_listing_the_unstable_flag_still_uses_the_fallback_filter() {
     let fixture = Fixture::new();
     let output = fixture
         .command()
-        .env("FIXTURE_CARGO_VERSION", "cargo 1.99.1 (5f94df478 2026-08-27)")
+        .env(
+            "FIXTURE_CARGO_VERSION",
+            "cargo 1.99.1 (5f94df478 2026-08-27)",
+        )
         .env("FIXTURE_SUPPORTS_MIN_AGE", "1")
         .env("CARGO_REGISTRY_GLOBAL_MIN_PUBLISH_AGE", "30 days")
         .arg("build")

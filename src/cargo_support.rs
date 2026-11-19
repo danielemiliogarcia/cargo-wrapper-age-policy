@@ -127,12 +127,20 @@ mod tests {
         let version = parse_version("cargo 1.99.0-nightly (abc 2026-08-01)").unwrap();
         assert!(!version.is_native());
         assert!(version.nightly);
-        assert!(parse_version("cargo 1.99.0-dev (abc 2026-08-01)").unwrap().nightly);
+        assert!(
+            parse_version("cargo 1.99.0-dev (abc 2026-08-01)")
+                .unwrap()
+                .nightly
+        );
     }
 
     #[test]
     fn beta_is_not_nightly() {
-        assert!(!parse_version("cargo 1.99.0-beta.2 (abc date)").unwrap().nightly);
+        assert!(
+            !parse_version("cargo 1.99.0-beta.2 (abc date)")
+                .unwrap()
+                .nightly
+        );
     }
 
     #[test]
@@ -140,7 +148,11 @@ mod tests {
         let version = parse_version("cargo 1.100.0 (3acc79c0c 2026-11-05)").unwrap();
         assert!(version.is_native());
         assert!(!version.nightly);
-        assert!(parse_version("cargo 1.101.2-nightly (abc date)").unwrap().is_native());
+        assert!(
+            parse_version("cargo 1.101.2-nightly (abc date)")
+                .unwrap()
+                .is_native()
+        );
         assert!(parse_version("cargo 2.0.0 (abc date)").unwrap().is_native());
     }
 
