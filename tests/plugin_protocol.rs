@@ -31,10 +31,12 @@ impl Fixture {
         let compiled = compile_fixture(&root);
         let cargo = root.join(executable_name("fake-cargo"));
         let next = root.join(executable_name("next"));
-        fs::copy(&compiled, &cargo).unwrap();
-        fs::copy(&compiled, &next).unwrap();
-        make_executable(&cargo);
-        make_executable(&next);
+        // Hard links avoid opening the executables for writing: a concurrent fork in
+        // another test thread would otherwise leak the write handle and make exec fail
+        // with ETXTBSY ("Text file busy").
+        make_executable(&compiled);
+        fs::hard_link(&compiled, &cargo).unwrap();
+        fs::hard_link(&compiled, &next).unwrap();
         let trace = root.join("trace.txt");
         Self {
             root,
