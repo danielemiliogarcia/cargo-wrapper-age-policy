@@ -53,6 +53,21 @@ pub fn is_known_non_resolving(args: &[String]) -> bool {
     )
 }
 
+/// Commands that change the dependency set or lockfile, where the native-Cargo notice is useful.
+pub fn is_dependency_changing(args: &[String]) -> bool {
+    matches!(
+        cargo_subcommand(args),
+        Some(
+            "add"
+                | "update"
+                | "forceupdate"
+                | "forceadd"
+                | "generate-lockfile"
+                | "forcegenerate-lockfile"
+        )
+    )
+}
+
 pub fn is_known_resolving(args: &[String]) -> bool {
     matches!(
         cargo_subcommand(args),

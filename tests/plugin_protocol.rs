@@ -99,6 +99,20 @@ fn stable_cargo_runs_next_with_effective_native_config() {
         fixture.trace(),
         "next|--config registry.global-min-publish-age=\"30 days\" update --precise 1.2.3|age=30 days\n"
     );
+    assert!(String::from_utf8_lossy(&output.stderr).contains("this plugin is not needed"));
+}
+
+#[test]
+fn native_notice_is_not_printed_for_build() {
+    let fixture = Fixture::new();
+    let output = fixture
+        .command()
+        .env("FIXTURE_CARGO_VERSION", "cargo 1.100.0 (stable)")
+        .arg("build")
+        .output()
+        .unwrap();
+    assert_success(&output);
+    assert!(!String::from_utf8_lossy(&output.stderr).contains("not needed"));
 }
 
 #[test]
@@ -363,6 +377,7 @@ fn status_is_handled_without_running_next() {
     assert_success(&output);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("native stable support"));
+    assert!(stdout.contains("this plugin is not needed"));
     assert_eq!(fixture.trace(), "");
 }
 
