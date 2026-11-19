@@ -1,8 +1,9 @@
 # Defines the standalone age-policy plugin package, binary, dependencies, and release profile.
 [package]
 name = "cargo-wrapper-age-policy"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
+rust-version = "1.100"
 license = "MIT"
 description = "Native Cargo minimum-publish-age enforcement plugin for Cargo Wrapper"
 repository = "https://github.com/danielemiliogarcia/cargo-wrapper-age-policy"
