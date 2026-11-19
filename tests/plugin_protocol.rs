@@ -102,6 +102,25 @@ fn supporting_nightly_gets_native_unstable_flag() {
 }
 
 #[test]
+fn stable_cargo_listing_the_unstable_flag_still_uses_the_fallback_filter() {
+    let fixture = Fixture::new();
+    let output = fixture
+        .command()
+        .env("FIXTURE_CARGO_VERSION", "cargo 1.99.1 (5f94df478 2026-08-27)")
+        .env("FIXTURE_SUPPORTS_MIN_AGE", "1")
+        .env("CARGO_REGISTRY_GLOBAL_MIN_PUBLISH_AGE", "30 days")
+        .arg("build")
+        .output()
+        .unwrap();
+    assert_success(&output);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("private crates.io sparse-index filter"));
+    let trace = fixture.trace();
+    assert!(!trace.contains("-Z"), "unexpected -Z flag in {trace}");
+    assert!(trace.contains("source.crates-io.replace-with=\"cargo-wrapper-age-policy\""));
+}
+
+#[test]
 fn unsupported_cargo_uses_private_filter_before_next() {
     let fixture = Fixture::new();
     let output = fixture
