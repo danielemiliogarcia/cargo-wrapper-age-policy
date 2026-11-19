@@ -52,8 +52,25 @@ impl Fixture {
             .env("CARGO_WRAPPER_REAL_CARGO", &self.cargo)
             .env("CARGO_WRAPPER_NEXT", &self.next)
             .env("CARGO_WRAPPER_PLUGIN_CHAIN", "age-policy,dependency-audit")
-            .env("FIXTURE_TRACE", &self.trace);
+            .env("FIXTURE_TRACE", &self.trace)
+            .env("CARGO_HOME", self.root.join("cargo-home"))
+            .env_remove("CARGO_REGISTRY_GLOBAL_MIN_PUBLISH_AGE")
+            .env_remove("CARGO_REGISTRIES_CRATES_IO_MIN_PUBLISH_AGE")
+            .env_remove("CARGO_RESOLVER_INCOMPATIBLE_PUBLISH_AGE");
         command
+    }
+
+    /// Creates a project directory whose Cargo config uses `include`.
+    fn include_project(&self) -> PathBuf {
+        let project = self.root.join("project");
+        fs::create_dir_all(project.join(".cargo")).unwrap();
+        fs::write(project.join(".cargo/config.toml"), "include = [\"age.toml\"]\n").unwrap();
+        fs::write(
+            project.join(".cargo/age.toml"),
+            "[registry]\nglobal-min-publish-age = \"12 months\"\n",
+        )
+        .unwrap();
+        project
     }
 
     fn trace(&self) -> String {
@@ -82,6 +99,61 @@ fn stable_cargo_runs_next_with_effective_native_config() {
         fixture.trace(),
         "next|--config registry.global-min-publish-age=\"30 days\" update --precise 1.2.3|age=30 days\n"
     );
+}
+
+#[test]
+fn native_cargo_defers_when_config_uses_include() {
+    let fixture = Fixture::new();
+    let project = fixture.include_project();
+    let output = fixture
+        .command()
+        .current_dir(&project)
+        .env("FIXTURE_CARGO_VERSION", "cargo 1.100.0 (stable)")
+        .arg("update")
+        .output()
+        .unwrap();
+    assert_success(&output);
+    assert!(String::from_utf8_lossy(&output.stderr).contains("deferring to native Cargo"));
+    assert_eq!(fixture.trace(), "next|update|age=<unset>\n");
+}
+
+#[test]
+fn native_cargo_injects_environment_value_when_config_uses_include() {
+    let fixture = Fixture::new();
+    let project = fixture.include_project();
+    let output = fixture
+        .command()
+        .current_dir(&project)
+        .env("FIXTURE_CARGO_VERSION", "cargo 1.100.0 (stable)")
+        .env("CARGO_REGISTRY_GLOBAL_MIN_PUBLISH_AGE", "30 days")
+        .arg("update")
+        .output()
+        .unwrap();
+    assert_success(&output);
+    assert!(!String::from_utf8_lossy(&output.stderr).contains("deferring to native Cargo"));
+    assert_eq!(
+        fixture.trace(),
+        "next|--config registry.global-min-publish-age=\"30 days\" update|age=30 days\n"
+    );
+}
+
+#[test]
+fn old_cargo_still_fails_closed_when_config_uses_include() {
+    let fixture = Fixture::new();
+    let project = fixture.include_project();
+    let output = fixture
+        .command()
+        .current_dir(&project)
+        .env("FIXTURE_CARGO_VERSION", "cargo 1.99.0 (old-stable)")
+        .arg("build")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("cannot safely merge Cargo config `include`")
+    );
+    assert_eq!(fixture.trace(), "");
 }
 
 #[test]

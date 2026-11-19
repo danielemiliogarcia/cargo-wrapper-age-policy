@@ -41,6 +41,10 @@ fn print_status(support: Result<CargoSupport, String>, policy: Result<FallbackPo
             "Effective minimum publish age: {raw:?} via {cargo_key}{}",
             if defaulted { " (plugin default)" } else { "" }
         ),
+        Ok(FallbackPolicy::Deferred { include_path }) => println!(
+            "Effective minimum publish age: deferred to native Cargo (config `include` in {})",
+            include_path.display()
+        ),
         Err(error) => println!("Effective minimum publish age: invalid\n{error}"),
     }
     println!(
@@ -74,10 +78,12 @@ fn run() -> Result<i32, String> {
 
     if is_plugin_status_command(&args) {
         let cwd = env::current_dir().map_err(|error| error.to_string())?;
-        print_status(
-            detect(context.real_cargo(), toolchain),
-            config::resolve(&args, &cwd),
+        let support = detect(context.real_cargo(), toolchain);
+        let fail_on_include = !matches!(
+            support,
+            Ok(CargoSupport::Stable | CargoSupport::UnstableFlag)
         );
+        print_status(support, config::resolve(&args, &cwd, fail_on_include));
         return Ok(0);
     }
 
@@ -101,9 +107,17 @@ fn run() -> Result<i32, String> {
     let policy = config::resolve(
         &args,
         &env::current_dir().map_err(|error| error.to_string())?,
+        support == CargoSupport::Unsupported,
     )?;
     match policy {
         FallbackPolicy::Disabled => context.run_next(&args),
+        FallbackPolicy::Deferred { include_path: _ } => {
+            eprintln!(
+                "age-policy: Cargo config uses `include`; deferring to native Cargo. Set CARGO_REGISTRY_GLOBAL_MIN_PUBLISH_AGE so isolated plugins (supply-chain-guard) see the policy."
+            );
+            args = apply_support(&args, support);
+            context.run_next(&args)
+        }
         FallbackPolicy::Enabled {
             cargo_key,
             raw,
