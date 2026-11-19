@@ -5,7 +5,7 @@
 
 `cargo-wrapper-age-policy` is a protocol v1 middleware plugin for Cargo Wrapper. It makes Cargo's native minimum-publish-age resolver policy a required capability for dependency-resolving commands.
 
-New to Cargo Wrapper? The [hands-on guide](https://github.com/danielemiliogarcia/cargowrapper/blob/fork-main/TRY-IT.md) tries the wrapper, plugins and minimum publish age in a throwaway shell.
+New to Cargo Wrapper? The [hands-on guide](https://github.com/danielemiliogarcia/cargowrapper/blob/fork-main/TRY-IT.md) tries the wrapper, plugins and minimum publish age in a throwaway folder, without installing anything.
 
 Once enabled, the plugin defaults to a 30-day minimum age. Installing it leaves it inactive, following Cargo Wrapper's normal plugin lifecycle; enabling it activates the default immediately.
 

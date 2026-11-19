@@ -1,7 +1,7 @@
 # Defines the standalone age-policy plugin package, binary, dependencies, and release profile.
 [package]
 name = "cargo-wrapper-age-policy"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 rust-version = "1.100"
 license = "MIT"
